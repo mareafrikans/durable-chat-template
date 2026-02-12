@@ -7,8 +7,14 @@
 	},
 	"migrations": [
 		{
-			"new_sqlite_classes": ["ChatRoom"],
+			"new_sqlite_classes": ["Chat"],
 			"tag": "v1"
+		},
+		{
+			"renamed_classes": [
+				{ "from": "Chat", "to": "ChatRoom" }
+			],
+			"tag": "v2"
 		}
 	],
 	"assets": {
@@ -26,9 +32,5 @@
 				"name": "CHAT_ROOM"
 			}
 		]
-	},
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true
+	}
 }
