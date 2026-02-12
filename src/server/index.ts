@@ -1,16 +1,23 @@
 import { DurableObject } from "cloudflare:workers";
 
 /**
- * mIRC-Style Chat Server
+ * mIRC-Style Durable Object Chat
+ * Supports: /identify, /op, /silent, /list, /nick
  */
+
+interface SessionData {
+  name: string;
+  level: "user" | "op" | "admin";
+  muted: boolean;
+}
+
 export class ChatRoom extends DurableObject {
-  private sessions = new Map<WebSocket, any>();
+  private sessions = new Map<WebSocket, SessionData>();
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
   }
 
-  // The main entry point for the Durable Object
   async fetch(request: Request) {
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -26,8 +33,8 @@ export class ChatRoom extends DurableObject {
   async handleSession(ws: WebSocket) {
     ws.accept();
 
-    // Initial user state
-    const session = { 
+    // Default User State
+    const session: SessionData = { 
       name: "Guest" + Math.floor(Math.random() * 1000), 
       level: "user", 
       muted: false 
@@ -39,61 +46,32 @@ export class ChatRoom extends DurableObject {
         const data = JSON.parse(msg.data as string);
         const text = data.text || "";
 
-        // COMMAND HANDLER
+        // --- COMMAND PARSER ---
         if (text.startsWith("/")) {
-          const parts = text.split(" ");
-          const command = parts[0].toLowerCase();
-          const args = parts.slice(1).join(" ");
-
-          // 1. /identify <passkey>
-          if (command === "/identify") {
-            if (args === this.env.ADMIN_PASSKEY) {
-              session.level = "admin";
-              ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (&)." }));
-            } else {
-              ws.send(JSON.stringify({ system: "Invalid passkey." }));
-            }
-            return;
-          }
-
-          // 2. /op <username>
-          if (command === "/op" && (session.level === "admin" || session.level === "op")) {
-            this.updateUserLevel(args, "op");
-            this.broadcast({ system: `${args} is now an Operator (@)` });
-            return;
-          }
-
-          // 3. /list (Admins only)
-          if (command === "/list" && session.level === "admin") {
-            const users = Array.from(this.sessions.values()).map(s => 
-              (s.level === "admin" ? "&" : s.level === "op" ? "@" : "") + s.name
-            );
-            ws.send(JSON.stringify({ system: `Online: ${users.join(", ")}` }));
-            return;
-          }
-
-          // 4. /silent <username>
-          if (command === "/silent" && (session.level === "admin" || session.level === "op")) {
-            this.muteUser(args);
-            this.broadcast({ system: `${args} has been silenced.` });
-            return;
-          }
-        }
-
-        // CHAT BROADCAST
-        if (session.muted) {
-          ws.send(JSON.stringify({ system: "You are silenced." }));
+          await this.handleCommand(ws, text);
           return;
         }
 
-        let prefix = session.level === "admin" ? "&" : session.level === "op" ? "@" : "";
+        // --- CHAT LOGIC ---
+        const currentSession = this.sessions.get(ws);
+        if (currentSession?.muted) {
+          ws.send(JSON.stringify({ system: "!!! You are currently silenced." }));
+          return;
+        }
+
+        // Apply mIRC Prefixes
+        let prefix = "";
+        if (currentSession?.level === "admin") prefix = "&";
+        else if (currentSession?.level === "op") prefix = "@";
+
         this.broadcast({
-          name: prefix + session.name,
-          text: text
+          name: `${prefix}${currentSession?.name}`,
+          text: text,
+          level: currentSession?.level
         });
 
-      } catch (e) {
-        console.error("Message error", e);
+      } catch (err) {
+        console.error("DO Message Error:", err);
       }
     });
 
@@ -102,30 +80,89 @@ export class ChatRoom extends DurableObject {
     });
   }
 
-  private broadcast(message: any) {
-    const data = JSON.stringify(message);
+  async handleCommand(ws: WebSocket, rawText: string) {
+    const parts = rawText.split(" ");
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1).join(" ");
+    const session = this.sessions.get(ws)!;
+
+    switch (command) {
+      case "/identify":
+        // env.ADMIN_PASSKEY is pulled from wrangler.json (7088AB)
+        if (args === this.env.ADMIN_PASSKEY) {
+          session.level = "admin";
+          ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (&)." }));
+        } else {
+          ws.send(JSON.stringify({ system: "Login failed: Invalid passkey." }));
+        }
+        break;
+
+      case "/nick":
+        if (!args) return;
+        const oldName = session.name;
+        session.name = args.substring(0, 15); // Limit length
+        this.broadcast({ system: `*** ${oldName} is now known as ${session.name}` });
+        break;
+
+      case "/op":
+        if (session.level === "admin" || session.level === "op") {
+          this.findAndModifyUser(args, (targetSess) => {
+            targetSess.level = "op";
+            this.broadcast({ system: `*** ${args} was opped (@) by ${session.name}` });
+          });
+        }
+        break;
+
+      case "/silent":
+        if (session.level === "admin" || session.level === "op") {
+          this.findAndModifyUser(args, (targetSess) => {
+            targetSess.muted = true;
+            this.broadcast({ system: `*** ${args} has been silenced by ${session.name}` });
+          });
+        }
+        break;
+
+      case "/list":
+        if (session.level === "admin") {
+          const userList = Array.from(this.sessions.values()).map(s => {
+            const p = s.level === "admin" ? "&" : (s.level === "op" ? "@" : "");
+            return p + s.name;
+          });
+          ws.send(JSON.stringify({ system: `Online Users: ${userList.join(", ")}` }));
+        }
+        break;
+
+      default:
+        ws.send(JSON.stringify({ system: "Unknown command. Try /nick, /identify, or /list." }));
+    }
+  }
+
+  private findAndModifyUser(name: string, callback: (session: SessionData) => void) {
+    for (const s of this.sessions.values()) {
+      if (s.name === name) {
+        callback(s);
+        break;
+      }
+    }
+  }
+
+  private broadcast(data: any) {
+    const payload = JSON.stringify(data);
     for (const [ws] of this.sessions) {
-      try { ws.send(data); } catch (e) { this.sessions.delete(ws); }
-    }
-  }
-
-  private updateUserLevel(name: string, level: string) {
-    for (const [ws, s] of this.sessions) {
-      if (s.name === name) s.level = level;
-    }
-  }
-
-  private muteUser(name: string) {
-    for (const [ws, s] of this.sessions) {
-      if (s.name === name) s.muted = true;
+      try {
+        ws.send(payload);
+      } catch (e) {
+        this.sessions.delete(ws);
+      }
     }
   }
 }
 
-// Worker code to route requests to the Durable Object
+// Worker Gateway
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("global");
+    // Routes all traffic to a single global chat instance
+    const id = env.CHAT_ROOM.idFromName("global-mirc");
     const obj = env.CHAT_ROOM.get(id);
     return obj.fetch(request);
   }
