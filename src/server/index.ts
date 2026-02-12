@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 
 /**
- * mIRC-Style Durable Object Chat
- * Supports: /identify, /op, /silent, /list, /nick
+ * mIRC-Style Durable Object Chat Server
+ * Fully documented at: https://developers.cloudflare.com
  */
 
 interface SessionData {
@@ -13,9 +13,11 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
+  private env: any; // Explicitly define env to use in commands
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
+    this.env = env; // Essential for /identify to work
   }
 
   async fetch(request: Request) {
@@ -55,7 +57,7 @@ export class ChatRoom extends DurableObject {
         // --- CHAT LOGIC ---
         const currentSession = this.sessions.get(ws);
         if (currentSession?.muted) {
-          ws.send(JSON.stringify({ system: "!!! You are currently silenced." }));
+          ws.send(JSON.stringify({ system: "!!! You are currently silenced and cannot speak." }));
           return;
         }
 
@@ -71,7 +73,7 @@ export class ChatRoom extends DurableObject {
         });
 
       } catch (err) {
-        console.error("DO Message Error:", err);
+        console.error("Durable Object Message Error:", err);
       }
     });
 
@@ -88,7 +90,7 @@ export class ChatRoom extends DurableObject {
 
     switch (command) {
       case "/identify":
-        // env.ADMIN_PASSKEY is pulled from wrangler.json (7088AB)
+        // Correctly pulls from env assigned in constructor
         if (args === this.env.ADMIN_PASSKEY) {
           session.level = "admin";
           ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (&)." }));
@@ -100,7 +102,8 @@ export class ChatRoom extends DurableObject {
       case "/nick":
         if (!args) return;
         const oldName = session.name;
-        session.name = args.substring(0, 15); // Limit length
+        // Basic sanitization
+        session.name = args.replace(/[^a-zA-Z0-9]/g, "").substring(0, 15); 
         this.broadcast({ system: `*** ${oldName} is now known as ${session.name}` });
         break;
 
@@ -110,6 +113,8 @@ export class ChatRoom extends DurableObject {
             targetSess.level = "op";
             this.broadcast({ system: `*** ${args} was opped (@) by ${session.name}` });
           });
+        } else {
+          ws.send(JSON.stringify({ system: "Permission Denied: You are not an operator." }));
         }
         break;
 
@@ -129,11 +134,17 @@ export class ChatRoom extends DurableObject {
             return p + s.name;
           });
           ws.send(JSON.stringify({ system: `Online Users: ${userList.join(", ")}` }));
+        } else {
+          ws.send(JSON.stringify({ system: "Permission Denied: Admin only command." }));
         }
         break;
 
+      case "/help":
+        ws.send(JSON.stringify({ system: "Available: /nick <name>, /identify <pass>, /list (Admin), /op <user>, /silent <user>" }));
+        break;
+
       default:
-        ws.send(JSON.stringify({ system: "Unknown command. Try /nick, /identify, or /list." }));
+        ws.send(JSON.stringify({ system: "Unknown command. Type /help for options." }));
     }
   }
 
@@ -158,11 +169,11 @@ export class ChatRoom extends DurableObject {
   }
 }
 
-// Worker Gateway
+// Worker Entry Point (Gateway)
 export default {
   async fetch(request: Request, env: any) {
-    // Routes all traffic to a single global chat instance
-    const id = env.CHAT_ROOM.idFromName("global-mirc");
+    // Durable Object ID management
+    const id = env.CHAT_ROOM.idFromName("global-mirc-v1");
     const obj = env.CHAT_ROOM.get(id);
     return obj.fetch(request);
   }
