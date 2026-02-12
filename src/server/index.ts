@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 /**
  * mIRC-Style Durable Object Chat Server
- * Fully documented at: https://developers.cloudflare.com
+ * Roles: Admin (@), Moderator (+), User (None)
  */
 
 interface SessionData {
@@ -13,11 +13,11 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private env: any; // Explicitly define env to use in commands
+  private env: any;
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.env = env; // Essential for /identify to work
+    this.env = env;
   }
 
   async fetch(request: Request) {
@@ -35,13 +35,17 @@ export class ChatRoom extends DurableObject {
   async handleSession(ws: WebSocket) {
     ws.accept();
 
-    // Default User State
+    // 1. Initialize User State
     const session: SessionData = { 
       name: "Guest" + Math.floor(Math.random() * 1000), 
       level: "user", 
       muted: false 
     };
     this.sessions.set(ws, session);
+
+    // 2. Alert everyone of new join and update sidebar
+    this.broadcast({ system: `*** ${session.name} joined the channel.` });
+    this.broadcastUserList();
 
     ws.addEventListener("message", async (msg) => {
       try {
@@ -57,14 +61,14 @@ export class ChatRoom extends DurableObject {
         // --- CHAT LOGIC ---
         const currentSession = this.sessions.get(ws);
         if (currentSession?.muted) {
-          ws.send(JSON.stringify({ system: "!!! You are currently silenced and cannot speak." }));
+          ws.send(JSON.stringify({ system: "!!! You are currently silenced." }));
           return;
         }
 
-        // Apply mIRC Prefixes
+        // Apply specific prefixes: Admin=@, Mod=+
         let prefix = "";
-        if (currentSession?.level === "admin") prefix = "&";
-        else if (currentSession?.level === "op") prefix = "@";
+        if (currentSession?.level === "admin") prefix = "@";
+        else if (currentSession?.level === "op") prefix = "+";
 
         this.broadcast({
           name: `${prefix}${currentSession?.name}`,
@@ -73,12 +77,17 @@ export class ChatRoom extends DurableObject {
         });
 
       } catch (err) {
-        console.error("Durable Object Message Error:", err);
+        console.error("DO Message Error:", err);
       }
     });
 
     ws.addEventListener("close", () => {
+      const closingSession = this.sessions.get(ws);
       this.sessions.delete(ws);
+      if (closingSession) {
+        this.broadcast({ system: `*** ${closingSession.name} left the channel.` });
+        this.broadcastUserList();
+      }
     });
   }
 
@@ -90,10 +99,10 @@ export class ChatRoom extends DurableObject {
 
     switch (command) {
       case "/identify":
-        // Correctly pulls from env assigned in constructor
         if (args === this.env.ADMIN_PASSKEY) {
           session.level = "admin";
-          ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (&)." }));
+          ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (@)." }));
+          this.broadcastUserList();
         } else {
           ws.send(JSON.stringify({ system: "Login failed: Invalid passkey." }));
         }
@@ -102,19 +111,18 @@ export class ChatRoom extends DurableObject {
       case "/nick":
         if (!args) return;
         const oldName = session.name;
-        // Basic sanitization
         session.name = args.replace(/[^a-zA-Z0-9]/g, "").substring(0, 15); 
         this.broadcast({ system: `*** ${oldName} is now known as ${session.name}` });
+        this.broadcastUserList();
         break;
 
       case "/op":
-        if (session.level === "admin" || session.level === "op") {
+        if (session.level === "admin") {
           this.findAndModifyUser(args, (targetSess) => {
-            targetSess.level = "op";
-            this.broadcast({ system: `*** ${args} was opped (@) by ${session.name}` });
+            targetSess.level = "op"; // Moderator status
+            this.broadcast({ system: `*** ${args} was promoted to Moderator (+)` });
+            this.broadcastUserList();
           });
-        } else {
-          ws.send(JSON.stringify({ system: "Permission Denied: You are not an operator." }));
         }
         break;
 
@@ -122,30 +130,36 @@ export class ChatRoom extends DurableObject {
         if (session.level === "admin" || session.level === "op") {
           this.findAndModifyUser(args, (targetSess) => {
             targetSess.muted = true;
-            this.broadcast({ system: `*** ${args} has been silenced by ${session.name}` });
+            this.broadcast({ system: `*** ${args} has been silenced.` });
           });
         }
         break;
 
       case "/list":
         if (session.level === "admin") {
-          const userList = Array.from(this.sessions.values()).map(s => {
-            const p = s.level === "admin" ? "&" : (s.level === "op" ? "@" : "");
-            return p + s.name;
+          // This lists all current users and their roles in this DO instance
+          const list = Array.from(this.sessions.values()).map(s => {
+             const p = s.level === "admin" ? "@" : (s.level === "op" ? "+" : "");
+             return p + s.name;
           });
-          ws.send(JSON.stringify({ system: `Online Users: ${userList.join(", ")}` }));
-        } else {
-          ws.send(JSON.stringify({ system: "Permission Denied: Admin only command." }));
+          ws.send(JSON.stringify({ system: `Current Users: ${list.join(", ")}` }));
         }
         break;
 
-      case "/help":
-        ws.send(JSON.stringify({ system: "Available: /nick <name>, /identify <pass>, /list (Admin), /op <user>, /silent <user>" }));
-        break;
-
       default:
-        ws.send(JSON.stringify({ system: "Unknown command. Type /help for options." }));
+        ws.send(JSON.stringify({ system: "Unknown command." }));
     }
+  }
+
+  // Updates the right-hand sidebar for all connected clients
+  private broadcastUserList() {
+    const names = Array.from(this.sessions.values()).map(s => {
+      let prefix = "";
+      if (s.level === "admin") prefix = "@";
+      else if (s.level === "op") prefix = "+";
+      return prefix + s.name;
+    });
+    this.broadcast({ userList: names });
   }
 
   private findAndModifyUser(name: string, callback: (session: SessionData) => void) {
@@ -169,11 +183,9 @@ export class ChatRoom extends DurableObject {
   }
 }
 
-// Worker Entry Point (Gateway)
 export default {
   async fetch(request: Request, env: any) {
-    // Durable Object ID management
-    const id = env.CHAT_ROOM.idFromName("global-mirc-v1");
+    const id = env.CHAT_ROOM.idFromName("global-mirc-v2");
     const obj = env.CHAT_ROOM.get(id);
     return obj.fetch(request);
   }
