@@ -1,87 +1,60 @@
-import {
-	type Connection,
-	Server,
-	type WSMessage,
-	routePartykitRequest,
-} from "partyserver";
+// Inside your Durable Object class (usually 'ChatRoom' or 'Chat')
+async onMessage(ws: WebSocket, message: string) {
+  const data = JSON.parse(message);
+  const msgText = data.text || "";
 
-import type { ChatMessage, Message } from "../shared";
+  // 1. COMMAND PARSER
+  if (msgText.startsWith("/")) {
+    const parts = msgText.split(" ");
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1);
 
-export class Chat extends Server<Env> {
-	static options = { hibernate: true };
+    // Get current session state (access level)
+    let session = ws.deserializeAttachment(); 
 
-	messages = [] as ChatMessage[];
+    switch (command) {
+      case "/identify":
+        // env.ADMIN_PASSKEY should be set in wrangler.json
+        if (args[0] === this.env.ADMIN_PASSKEY) {
+          session.level = "admin";
+          ws.serializeAttachment(session);
+          ws.send(JSON.stringify({ system: "IDENTIFIED: You are now an Admin (&)." }));
+        }
+        return;
 
-	broadcastMessage(message: Message, exclude?: string[]) {
-		this.broadcast(JSON.stringify(message), exclude);
-	}
+      case "/op":
+        if (session.level === "admin" || session.level === "op") {
+          const target = args[0];
+          this.broadcast({ system: `${target} is now a Channel Operator (@)` });
+          // Logic to find target's WS and set session.level = "op" goes here
+        }
+        return;
 
-	onStart() {
-		// this is where you can initialize things that need to be done before the server starts
-		// for example, load previous messages from a database or a service
+      case "/list":
+        if (session.level === "admin") {
+          // Admins see all active sessions in this Durable Object
+          const activeUsers = Array.from(this.ctx.getWebSockets()).map(s => s.deserializeAttachment().name);
+          ws.send(JSON.stringify({ system: `Active Users: ${activeUsers.join(", ")}` }));
+        }
+        return;
+        
+      case "/silent":
+        if (session.level === "admin" || session.level === "op") {
+          this.broadcast({ system: `Channel is now in SILENT mode.` });
+          this.isSilent = true; // Set a class property
+        }
+        return;
+    }
+  }
 
-		// create the messages table if it doesn't exist
-		this.ctx.storage.sql.exec(
-			`CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, user TEXT, role TEXT, content TEXT)`,
-		);
+  // 2. BROADCAST WITH PREFIXES
+  const session = ws.deserializeAttachment();
+  let prefix = "";
+  if (session.level === "admin") prefix = "&";
+  else if (session.level === "op") prefix = "@";
 
-		// load the messages from the database
-		this.messages = this.ctx.storage.sql
-			.exec(`SELECT * FROM messages`)
-			.toArray() as ChatMessage[];
-	}
-
-	onConnect(connection: Connection) {
-		connection.send(
-			JSON.stringify({
-				type: "all",
-				messages: this.messages,
-			} satisfies Message),
-		);
-	}
-
-	saveMessage(message: ChatMessage) {
-		// check if the message already exists
-		const existingMessage = this.messages.find((m) => m.id === message.id);
-		if (existingMessage) {
-			this.messages = this.messages.map((m) => {
-				if (m.id === message.id) {
-					return message;
-				}
-				return m;
-			});
-		} else {
-			this.messages.push(message);
-		}
-
-		this.ctx.storage.sql.exec(
-			`INSERT INTO messages (id, user, role, content) VALUES ('${
-				message.id
-			}', '${message.user}', '${message.role}', ${JSON.stringify(
-				message.content,
-			)}) ON CONFLICT (id) DO UPDATE SET content = ${JSON.stringify(
-				message.content,
-			)}`,
-		);
-	}
-
-	onMessage(connection: Connection, message: WSMessage) {
-		// let's broadcast the raw message to everyone else
-		this.broadcast(message);
-
-		// let's update our local messages store
-		const parsed = JSON.parse(message as string) as Message;
-		if (parsed.type === "add" || parsed.type === "update") {
-			this.saveMessage(parsed);
-		}
-	}
+  this.broadcast({
+    name: `${prefix}${session.name}`,
+    text: msgText
+  });
 }
-
-export default {
-	async fetch(request, env) {
-		return (
-			(await routePartykitRequest(request, { ...env })) ||
-			env.ASSETS.fetch(request)
-		);
-	},
-} satisfies ExportedHandler<Env>;
