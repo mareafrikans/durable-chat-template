@@ -1,33 +1,39 @@
 import React, { useEffect, useState, useRef } from "react";
 import { render } from "react-dom";
 
-/**
- * mIRC-Style Client Logic
- */
+interface ChatMessage {
+  name?: string;
+  text?: string;
+  system?: string;
+  userList?: string[]; // Server will send this to update the sidebar
+}
 
 const ChatApp = () => {
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [users, setUsers] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const chatWindowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Determine WebSocket protocol (ws or wss)
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const hostname = window.location.host;
-    const socket = new WebSocket(`${protocol}//${hostname}/ws`);
+    const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setMessages((prev) => [...prev, data]);
+      const data: ChatMessage = JSON.parse(event.data);
+      
+      // If the message contains a userList update, handle it
+      if (data.userList) {
+        setUsers(data.userList);
+      } else {
+        setMessages((prev) => [...prev, data]);
+      }
     };
 
     socketRef.current = socket;
-
     return () => socket.close();
   }, []);
 
-  // Auto-scroll to bottom like mIRC
   useEffect(() => {
     if (chatWindowRef.current) {
       chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
@@ -37,65 +43,88 @@ const ChatApp = () => {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !socketRef.current) return;
-
-    // CRITICAL: Send as JSON so the server's JSON.parse() works
-    const payload = JSON.stringify({ text: input });
-    socketRef.current.send(payload);
-
+    socketRef.current.send(JSON.stringify({ text: input }));
     setInput("");
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Messages Area */}
-      <div 
-        ref={chatWindowRef}
-        style={{ flex: 1, overflowY: 'auto', padding: '10px' }}
-      >
-        {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.system ? 'system' : ''}`}>
-            {m.system ? (
-              <span style={{ color: '#00ffff' }}>*** {m.system}</span>
-            ) : (
-              <>
-                <span className={m.name?.startsWith('&') ? 'admin' : m.name?.startsWith('@') ? 'op' : ''} 
-                      style={{ 
-                        fontWeight: 'bold', 
-                        color: m.name?.startsWith('&') ? '#ff00ff' : m.name?.startsWith('@') ? '#ff0000' : '#00ff00' 
-                      }}>
-                  &lt;{m.name}&gt;
-                </span>
-                <span style={{ marginLeft: '8px' }}>{m.text}</span>
-              </>
-            )}
-          </div>
-        ))}
+    <div className="mirc-wrapper">
+      <div className="main-layout">
+        {/* Chat Window */}
+        <div className="chat-area" ref={chatWindowRef}>
+          {messages.map((m, i) => (
+            <div key={i} className="msg-row">
+              {m.system ? (
+                <span className="system-msg">*** {m.system}</span>
+              ) : (
+                <>
+                  <span className={`nick ${m.name?.startsWith('@') ? 'admin-nick' : m.name?.startsWith('+') ? 'mod-nick' : ''}`}>
+                    &lt;{m.name}&gt;
+                  </span>
+                  <span className="text-msg">{m.text}</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* User List Sidebar */}
+        <div className="user-sidebar">
+          <div className="sidebar-header">Users ({users.length})</div>
+          {users.map((u, i) => (
+            <div key={i} className={`user-item ${u.startsWith('@') ? 'admin-text' : u.startsWith('+') ? 'mod-text' : ''}`}>
+              {u}
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Input Area */}
-      <form onSubmit={sendMessage} style={{ display: 'flex', background: '#c0c0c0', padding: '2px' }}>
+      {/* Input Bar */}
+      <form onSubmit={sendMessage} className="input-form">
+        <div className="status-indicator">#mIRC</div>
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          style={{
-            flex: 1,
-            background: '#fff',
-            color: '#000',
-            border: '2px inset #808080',
-            padding: '4px',
-            fontFamily: '"Fixedsys", "Courier New", monospace'
-          }}
-          placeholder="Type a message or command (/identify, /nick, etc.)..."
+          placeholder="Type message or command (/identify, /nick, /op)..."
           autoFocus
         />
       </form>
+
+      <style>{`
+        .mirc-wrapper { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: "Courier New", monospace; }
+        .main-layout { display: flex; flex: 1; overflow: hidden; }
+        
+        /* Responsive Chat Area */
+        .chat-area { flex: 1; overflow-y: auto; padding: 10px; border-right: 1px solid #333; }
+        
+        /* User Sidebar */
+        .user-sidebar { width: 150px; background: #000; border-left: 1px solid #333; padding: 10px; font-size: 0.9em; }
+        .sidebar-header { border-bottom: 1px solid #444; margin-bottom: 5px; color: #aaa; padding-bottom: 3px; }
+        
+        /* Input Bar */
+        .input-form { display: flex; background: #c0c0c0; padding: 3px; border-top: 2px solid #808080; }
+        .status-indicator { background: #000080; color: #fff; padding: 2px 8px; margin-right: 4px; font-size: 12px; display: flex; align-items: center; }
+        .input-form input { flex: 1; border: 2px inset #808080; padding: 5px; outline: none; font-family: inherit; }
+
+        /* Nickname Colors */
+        .msg-row { margin-bottom: 3px; word-wrap: break-word; }
+        .nick { font-weight: bold; margin-right: 8px; }
+        .admin-nick, .admin-text { color: #ff0000; } /* @ Admin = Red */
+        .mod-nick, .mod-text { color: #ffff00; }   /* + Mod = Yellow */
+        .system-msg { color: #00ffff; }            /* System = Cyan */
+        .text-msg { color: #ffffff; }
+
+        /* Responsive Breakpoints */
+        @media (max-width: 600px) {
+          .main-layout { flex-direction: column; }
+          .user-sidebar { width: 100%; height: 100px; border-left: 0; border-top: 1px solid #333; }
+          .status-indicator { display: none; }
+        }
+      `}</style>
     </div>
   );
 };
 
-// Target the 'root' div from your index.html
 const rootElement = document.getElementById("root");
-if (rootElement) {
-  render(<ChatApp />, rootElement);
-}
+if (rootElement) render(<ChatApp />, rootElement);
