@@ -1,20 +1,35 @@
 {
-	"compatibility_date": "2025-10-08",
-	"main": "src/server/index.ts",
 	"name": "durable-chat-template",
+	"main": "src/server/index.ts",
+	"compatibility_date": "2024-04-03",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
 	"vars": {
 		"ADMIN_PASSKEY": "7088AB"
 	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CHAT_ROOM",
+				"class_name": "ChatRoom"
+			}
+		]
+	},
 	"migrations": [
 		{
-			"new_sqlite_classes": ["Chat"],
-			"tag": "v1"
+			"tag": "v1",
+			"new_sqlite_classes": ["Chat"]
 		},
 		{
+			"tag": "v2",
 			"renamed_classes": [
 				{ "from": "Chat", "to": "ChatRoom" }
-			],
-			"tag": "v2"
+			]
+		},
+		{
+			"tag": "v3",
+			"new_sqlite_classes": ["ChatRoom"]
 		}
 	],
 	"assets": {
@@ -25,12 +40,7 @@
 	"build": {
 		"command": "esbuild src/client/index.tsx --bundle --splitting --format=esm --platform=browser --outdir=public/dist"
 	},
-	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "ChatRoom",
-				"name": "CHAT_ROOM"
-			}
-		]
+	"observability": {
+		"enabled": true
 	}
 }
