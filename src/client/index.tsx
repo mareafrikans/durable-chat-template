@@ -1,131 +1,101 @@
-import { createRoot } from "react-dom/client";
-import { usePartySocket } from "partysocket/react";
-import React, { useState } from "react";
-import {
-	BrowserRouter,
-	Routes,
-	Route,
-	Navigate,
-	useParams,
-} from "react-router";
-import { nanoid } from "nanoid";
+import React, { useEffect, useState, useRef } from "react";
+import { render } from "react-dom";
 
-import { names, type ChatMessage, type Message } from "../shared";
+/**
+ * mIRC-Style Client Logic
+ */
 
-function App() {
-	const [name] = useState(names[Math.floor(Math.random() * names.length)]);
-	const [messages, setMessages] = useState<ChatMessage[]>([]);
-	const { room } = useParams();
+const ChatApp = () => {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const socketRef = useRef<WebSocket | null>(null);
+  const chatWindowRef = useRef<HTMLDivElement>(null);
 
-	const socket = usePartySocket({
-		party: "chat",
-		room,
-		onMessage: (evt) => {
-			const message = JSON.parse(evt.data as string) as Message;
-			if (message.type === "add") {
-				const foundIndex = messages.findIndex((m) => m.id === message.id);
-				if (foundIndex === -1) {
-					// probably someone else who added a message
-					setMessages((messages) => [
-						...messages,
-						{
-							id: message.id,
-							content: message.content,
-							user: message.user,
-							role: message.role,
-						},
-					]);
-				} else {
-					// this usually means we ourselves added a message
-					// and it was broadcasted back
-					// so let's replace the message with the new message
-					setMessages((messages) => {
-						return messages
-							.slice(0, foundIndex)
-							.concat({
-								id: message.id,
-								content: message.content,
-								user: message.user,
-								role: message.role,
-							})
-							.concat(messages.slice(foundIndex + 1));
-					});
-				}
-			} else if (message.type === "update") {
-				setMessages((messages) =>
-					messages.map((m) =>
-						m.id === message.id
-							? {
-									id: message.id,
-									content: message.content,
-									user: message.user,
-									role: message.role,
-								}
-							: m,
-					),
-				);
-			} else {
-				setMessages(message.messages);
-			}
-		},
-	});
+  useEffect(() => {
+    // Determine WebSocket protocol (ws or wss)
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const hostname = window.location.host;
+    const socket = new WebSocket(`${protocol}//${hostname}/ws`);
 
-	return (
-		<div className="chat container">
-			{messages.map((message) => (
-				<div key={message.id} className="row message">
-					<div className="two columns user">{message.user}</div>
-					<div className="ten columns">{message.content}</div>
-				</div>
-			))}
-			<form
-				className="row"
-				onSubmit={(e) => {
-					e.preventDefault();
-					const content = e.currentTarget.elements.namedItem(
-						"content",
-					) as HTMLInputElement;
-					const chatMessage: ChatMessage = {
-						id: nanoid(8),
-						content: content.value,
-						user: name,
-						role: "user",
-					};
-					setMessages((messages) => [...messages, chatMessage]);
-					// we could broadcast the message here
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setMessages((prev) => [...prev, data]);
+    };
 
-					socket.send(
-						JSON.stringify({
-							type: "add",
-							...chatMessage,
-						} satisfies Message),
-					);
+    socketRef.current = socket;
 
-					content.value = "";
-				}}
-			>
-				<input
-					type="text"
-					name="content"
-					className="ten columns my-input-text"
-					placeholder={`Hello ${name}! Type a message...`}
-					autoComplete="off"
-				/>
-				<button type="submit" className="send-message two columns">
-					Send
-				</button>
-			</form>
-		</div>
-	);
+    return () => socket.close();
+  }, []);
+
+  // Auto-scroll to bottom like mIRC
+  useEffect(() => {
+    if (chatWindowRef.current) {
+      chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const sendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !socketRef.current) return;
+
+    // CRITICAL: Send as JSON so the server's JSON.parse() works
+    const payload = JSON.stringify({ text: input });
+    socketRef.current.send(payload);
+
+    setInput("");
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Messages Area */}
+      <div 
+        ref={chatWindowRef}
+        style={{ flex: 1, overflowY: 'auto', padding: '10px' }}
+      >
+        {messages.map((m, i) => (
+          <div key={i} className={`msg ${m.system ? 'system' : ''}`}>
+            {m.system ? (
+              <span style={{ color: '#00ffff' }}>*** {m.system}</span>
+            ) : (
+              <>
+                <span className={m.name?.startsWith('&') ? 'admin' : m.name?.startsWith('@') ? 'op' : ''} 
+                      style={{ 
+                        fontWeight: 'bold', 
+                        color: m.name?.startsWith('&') ? '#ff00ff' : m.name?.startsWith('@') ? '#ff0000' : '#00ff00' 
+                      }}>
+                  &lt;{m.name}&gt;
+                </span>
+                <span style={{ marginLeft: '8px' }}>{m.text}</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Input Area */}
+      <form onSubmit={sendMessage} style={{ display: 'flex', background: '#c0c0c0', padding: '2px' }}>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          style={{
+            flex: 1,
+            background: '#fff',
+            color: '#000',
+            border: '2px inset #808080',
+            padding: '4px',
+            fontFamily: '"Fixedsys", "Courier New", monospace'
+          }}
+          placeholder="Type a message or command (/identify, /nick, etc.)..."
+          autoFocus
+        />
+      </form>
+    </div>
+  );
+};
+
+// Target the 'root' div from your index.html
+const rootElement = document.getElementById("root");
+if (rootElement) {
+  render(<ChatApp />, rootElement);
 }
-
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-createRoot(document.getElementById("root")!).render(
-	<BrowserRouter>
-		<Routes>
-			<Route path="/" element={<Navigate to={`/${nanoid()}`} />} />
-			<Route path="/:room" element={<App />} />
-			<Route path="*" element={<Navigate to="/" />} />
-		</Routes>
-	</BrowserRouter>,
-);
