@@ -2,9 +2,12 @@
 	"compatibility_date": "2025-10-08",
 	"main": "src/server/index.ts",
 	"name": "durable-chat-template",
+	"vars": {
+		"ADMIN_PASSKEY": "7088AB"
+	},
 	"migrations": [
 		{
-			"new_sqlite_classes": ["Chat"],
+			"new_sqlite_classes": ["ChatRoom"],
 			"tag": "v1"
 		}
 	],
@@ -19,8 +22,8 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "Chat",
-				"name": "Chat"
+				"class_name": "ChatRoom",
+				"name": "CHAT_ROOM"
 			}
 		]
 	},
