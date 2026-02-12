@@ -26,10 +26,6 @@
 			"renamed_classes": [
 				{ "from": "Chat", "to": "ChatRoom" }
 			]
-		},
-		{
-			"tag": "v3",
-			"new_sqlite_classes": ["ChatRoom"]
 		}
 	],
 	"assets": {
