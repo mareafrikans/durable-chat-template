@@ -3,105 +3,60 @@
 <head>
     <meta charset="utf-8" />
     <title>mIRC Web Client - Durable Chat</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <style>
-        /* mIRC Aesthetic Base */
+        /* mIRC Aesthetic Base Fixes */
         * { box-sizing: border-box; }
-        body, html { 
-            height: 100%; margin: 0; padding: 0; 
-            background: #000; color: #fff; 
-            font-family: "Fixedsys", "Courier New", monospace; 
-            overflow: hidden;
-        }
-
-        /* Layout Container */
-        #mirc-container {
-            display: flex; flex-direction: column; height: 100vh;
-            border: 2px outset #808080;
-        }
-
-        /* Top Menu Bar Lookalike */
-        #menu-bar {
-            background: #c0c0c0; color: #000; padding: 2px 5px;
-            font-size: 12px; border-bottom: 1px solid #808080;
-        }
-
-        /* Main Workspace: Chat + Userlist */
-        #workspace { display: flex; flex: 1; overflow: hidden; }
-
-        /* Scrollable Chat Window */
-        #chat-window {
-            flex: 1; overflow-y: scroll; padding: 10px;
-            background: #000; border-right: 1px solid #444;
-            scroll-behavior: smooth;
-        }
-
-        /* User List Sidebar */
-        #user-list {
-            width: 180px; background: #000; padding: 10px;
-            border-left: 2px inset #555; color: #00ff00;
-        }
-
-        /* Input Area at Bottom */
-        #input-container {
-            background: #c0c0c0; padding: 4px; display: flex;
-            border-top: 1px solid #808080;
-        }
-        #chat-input {
-            flex: 1; background: #fff; color: #000;
-            border: 2px inset #808080; padding: 4px;
-            font-family: inherit; font-size: 14px;
-        }
-
-        /* Message Styling */
-        .msg { margin-bottom: 2px; line-height: 1.2; }
-        .msg.system { color: #00ffff; }   /* Cyan for server messages */
-        .msg.admin { color: #ff00ff; }    /* Pink for Admin messages */
-        .msg.op { color: #ff0000; }       /* Red for Operators */
-        .user-op::before { content: "@"; color: #ff0000; margin-right: 2px; }
-        .user-admin::before { content: "&"; color: #ff00ff; margin-right: 2px; }
         
-        /* Status Bar */
-        #status-bar {
-            background: #000080; color: #fff; font-size: 11px;
-            padding: 2px 10px; border-top: 1px solid #fff;
+        body, html { 
+            height: 100%; 
+            margin: 0; 
+            padding: 0; 
+            background: #000; 
+            color: #fff; 
+            /* Classic terminal font stack */
+            font-family: "Fixedsys", "Courier New", Courier, monospace; 
+            overflow: hidden; /* Prevents body-level scrollbars */
+        }
+
+        /* The root container must fill the entire screen for the responsive layout to work */
+        #root { 
+            height: 100vh; 
+            width: 100vw; 
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Custom scrollbar to match the mIRC/Windows 95 aesthetic */
+        ::-webkit-scrollbar {
+            width: 16px;
+            background-color: #c0c0c0;
+        }
+        ::-webkit-scrollbar-thumb {
+            background-color: #dfdfdf;
+            border: 2px outset #ffffff;
+        }
+        ::-webkit-scrollbar-button {
+            background-color: #c0c0c0;
+            border: 1px outset #fff;
+            height: 16px;
         }
     </style>
 </head>
 <body>
 
-<div id="mirc-container">
-    <div id="menu-bar">File Edit View Favorites Tools Commands Window Help</div>
-    
-    <div id="workspace">
-        <!-- Main Chat Area -->
-        <div id="chat-window">
-            <div class="msg system">*** Connecting to Cloudflare Durable Objects...</div>
-            <div class="msg system">*** You are now in #durable-chat</div>
-            <div class="msg system">*** Use /identify [passkey] to login as admin</div>
-            <div id="root"></div> <!-- Integration point for your existing JS -->
-        </div>
+    <!-- 
+      All UI elements (Chat Window, User Sidebar, and Command Line) 
+      are now injected here by your src/client/index.tsx.
+      This prevents the "double sidebar" and "double input" issue.
+    -->
+    <div id="root"></div>
 
-        <!-- Right Side User List -->
-        <div id="user-list">
-            <div style="text-decoration: underline; margin-bottom: 5px;">Users</div>
-            <div id="users-root">
-                <!-- Usernames will be injected here -->
-            </div>
-        </div>
-    </div>
+    <!-- 
+      The compiled JavaScript from your 'npm run deploy' command.
+      This handles the WebSocket connection and the mIRC UI logic.
+    -->
+    <script src="/dist/index.js" type="module"></script>
 
-    <!-- Command Input -->
-    <div id="input-container">
-        <input type="text" id="chat-input" placeholder="Type command or message..." autofocus />
-    </div>
-
-    <!-- Bottom Info Bar -->
-    <div id="status-bar">
-        Status: Connected | Channel: #durable-chat | Modes: +nt
-    </div>
-</div>
-
-<script src="/dist/index.js" type="module"></script>
 </body>
 </html>
