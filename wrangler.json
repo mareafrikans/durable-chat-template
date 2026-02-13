@@ -18,7 +18,7 @@
   },
   "migrations": [
     {
-      "tag": "v5",
+      "tag": "v6",
       "new_sqlite_classes": ["ChatRoom"]
     }
   ],
