@@ -3,24 +3,8 @@
   "main": "src/server/index.ts",
   "compatibility_date": "2024-04-03",
   "compatibility_flags": ["nodejs_compat"],
-  "vars": {
-    "ADMIN_PASSKEY": "7088AB"
-  },
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "CHAT_ROOM",
-        "class_name": "ChatRoom"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v22",
-      "tag_as_sqlite": ["ChatRoom"]
-    }
-  ],
-  "assets": {
-    "directory": "./public"
-  }
+  "vars": { "ADMIN_PASSKEY": "7088AB" },
+  "durable_objects": { "bindings": [{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }] },
+  "migrations": [{ "tag": "v23", "tag_as_sqlite": ["ChatRoom"] }],
+  "assets": { "directory": "./public" }
 }
