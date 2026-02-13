@@ -1,37 +1,44 @@
 import { DurableObject } from "cloudflare:workers";
 
 export class ChatRoom extends DurableObject {
-  private sessions = new Map<WebSocket, { name: string; level: string; ws: WebSocket }>();
+  private sessions = new Map<WebSocket, { name: string; level: string }>();
   private topic: string = "mIRC Durable Network v2026";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    await this.handleSession(server);
+    
+    // Modern DO WebSocket Hibernation API
+    this.ctx.acceptWebSocket(server);
+    
+    const nick = "Guest" + Math.floor(Math.random() * 1000);
+    this.sessions.set(server, { name: nick, level: "user" });
+    
+    this.broadcast({ system: `* Joins: ${nick}` });
+    this.broadcastUserList();
+    
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handleSession(ws: WebSocket) {
-    this.ctx.acceptWebSocket(ws);
-    const nick = "Guest" + Math.floor(Math.random() * 1000);
-    this.sessions.set(ws, { name: nick, level: "user", ws });
-    this.broadcast({ system: `* Joins: ${nick}` });
-    this.broadcastUserList();
-  }
-
+  // FIXED: Modern entry point for messages
   async webSocketMessage(ws: WebSocket, message: string) {
     const data = JSON.parse(message);
-    const session = this.sessions.get(ws)!;
-    const text = data.text?.trim();
-    if (!text) return;
+    const session = this.sessions.get(ws);
+    if (!session || !data.text) return;
 
+    const text = data.text.trim();
+
+    // COMMAND HANDLING
     if (text.startsWith("/")) {
       const parts = text.split(" ");
       const cmd = parts[0].toLowerCase();
       const args = parts.slice(1).join(" ");
 
       switch (cmd) {
+        case "/help":
+          ws.send(JSON.stringify({ system: "Commands: /nick <name>, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
+          break;
         case "/nick":
           const old = session.name;
           session.name = args.replace(/[^\w]/g, "").substring(0, 12) || session.name;
@@ -40,48 +47,60 @@ export class ChatRoom extends DurableObject {
           break;
         case "/msg":
           const [tNick, ...mParts] = args.split(" ");
-          const target = Array.from(this.sessions.values()).find(s => s.name === tNick);
-          if (target) {
-            const p = JSON.stringify({ user: `-> *${session.name}*`, text: mParts.join(" "), pvt: true });
-            target.ws.send(p); ws.send(p);
+          const mText = mParts.join(" ");
+          const targetEntry = Array.from(this.sessions.entries()).find(([_, s]) => s.name === tNick);
+          if (targetEntry) {
+            const p = JSON.stringify({ user: `-> *${session.name}*`, text: mText, pvt: true });
+            targetEntry[0].send(p); // Send to target
+            ws.send(p); // Send to sender
           }
           break;
         case "/op":
-          if (args === "7088AB") { session.level = "admin"; this.broadcastUserList(); }
-          break;
-        case "/silent":
-          if (session.level === "admin") { 
-            this.silentMode = (args === "on"); 
-            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` }); 
+          if (args === "7088AB") { 
+            session.level = "admin"; 
+            ws.send(JSON.stringify({ system: "You are now @Operator" }));
+            this.broadcastUserList(); 
           }
           break;
-        case "/help":
-          ws.send(JSON.stringify({ system: "Commands: /nick <nick>, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
+        case "/silent":
+          if (session.level === "admin") {
+            this.silentMode = (args === "on");
+            this.broadcast({ system: `*** Channel is now ${this.silentMode ? "SILENT (+m)" : "OPEN (-m)"}` });
+          }
           break;
         case "/quit":
-          this.broadcast({ system: `* Quits: ${session.name} (${args || "Leaving"})` });
+          this.broadcast({ system: `* Quits: ${session.name}` });
           ws.close();
           break;
       }
       return;
     }
 
+    // BROADCAST LOGIC
     if (this.silentMode && session.level === "user") {
-        ws.send(JSON.stringify({ system: "Channel is +m. Only @ and + can talk." }));
-        return;
+      ws.send(JSON.stringify({ system: "Channel is +m. Only @ can talk." }));
+      return;
     }
+
     const prefix = session.level === "admin" ? "@" : "";
     this.broadcast({ user: prefix + session.name, text });
   }
 
   async webSocketClose(ws: WebSocket) {
     const s = this.sessions.get(ws);
-    if (s) { this.broadcast({ system: `* Parts: ${s.name}` }); this.sessions.delete(ws); this.broadcastUserList(); }
+    if (s) {
+      this.broadcast({ system: `* Parts: ${s.name}` });
+      this.sessions.delete(ws);
+      this.broadcastUserList();
+    }
   }
 
   private broadcast(data: any) {
     const payload = JSON.stringify(data);
-    this.sessions.forEach((_, ws) => ws.send(payload));
+    // Correct way to broadcast to all connected DO WebSockets
+    this.ctx.getWebSockets().forEach(ws => {
+      try { ws.send(payload); } catch (e) {}
+    });
   }
 
   private broadcastUserList() {
@@ -92,7 +111,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-final");
+    const id = env.CHAT_ROOM.idFromName("mirc-broadcast-fixed");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
