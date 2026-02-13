@@ -7,6 +7,8 @@ export class ChatRoom extends DurableObject {
   async fetch(request: Request) {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
+    
+    // Register the connection for hibernation
     this.ctx.acceptWebSocket(server);
     
     const nick = "Guest" + Math.floor(Math.random() * 1000);
@@ -25,10 +27,13 @@ export class ChatRoom extends DurableObject {
 
     const text = data.text.trim();
 
+    // Command Logic
     if (text.startsWith("/")) {
-      const [cmd, ...argsArr] = text.split(" ");
-      const args = argsArr.join(" ");
-      switch (cmd.toLowerCase()) {
+      const parts = text.split(" ");
+      const cmd = parts[0].toLowerCase();
+      const args = parts.slice(1).join(" ");
+
+      switch (cmd) {
         case "/nick":
           const old = session.name;
           session.name = args.replace(/[^\w]/g, "").substring(0, 12) || session.name;
@@ -37,10 +42,10 @@ export class ChatRoom extends DurableObject {
           break;
         case "/msg":
           const [tNick, ...mParts] = args.split(" ");
-          const target = Array.from(this.sessions.entries()).find(([_, s]) => s.name === tNick);
-          if (target) {
+          const targetWs = this.ctx.getWebSockets().find(w => this.sessions.get(w)?.name === tNick);
+          if (targetWs) {
             const p = JSON.stringify({ user: `-> *${session.name}*`, text: mParts.join(" "), pvt: true });
-            target[0].send(p); ws.send(p);
+            targetWs.send(p); ws.send(p);
           }
           break;
         case "/op":
@@ -50,11 +55,8 @@ export class ChatRoom extends DurableObject {
             this.broadcastUserList();
           }
           break;
-        case "/silent":
-          if (session.level === "admin") {
-            this.silentMode = (args === "on");
-            this.broadcast({ system: `*** Channel is ${this.silentMode ? "SILENT (+m)" : "OPEN"}` });
-          }
+        case "/help":
+          ws.send(JSON.stringify({ system: "Commands: /nick, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
           break;
         case "/quit":
           this.broadcast({ system: `* Quits: ${session.name}` });
@@ -64,6 +66,7 @@ export class ChatRoom extends DurableObject {
       return;
     }
 
+    // Broadcast Chat
     if (this.silentMode && session.level === "user") return;
     const pfx = session.level === "admin" ? "@" : "";
     this.broadcast({ user: pfx + session.name, text });
@@ -86,14 +89,17 @@ export class ChatRoom extends DurableObject {
   }
 
   private broadcastUserList() {
-    const users = Array.from(this.sessions.values()).map(s => (s.level === "admin" ? "@" : "") + s.name);
+    const users = this.ctx.getWebSockets().map(ws => {
+        const s = this.sessions.get(ws);
+        return (s?.level === "admin" ? "@" : "") + (s?.name || "Unknown");
+    });
     this.broadcast({ userList: users });
   }
 }
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v16");
+    const id = env.CHAT_ROOM.idFromName("mirc-v21");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
