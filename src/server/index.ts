@@ -8,7 +8,7 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private topic: string = "Welcome to the mIRC Durable Network";
+  private topic: string = "Welcome to the mIRC Durable Network 2026";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
@@ -22,7 +22,7 @@ export class ChatRoom extends DurableObject {
     const nick = "Guest" + Math.floor(Math.random() * 1000);
     this.sessions.set(ws, { name: nick, level: "user", ws });
     
-    // Announce Join
+    // Broadcast Join
     this.broadcast({ system: `* Joins: ${nick} (user@durable-network)` });
     ws.send(JSON.stringify({ topic: this.topic }));
     this.broadcastUserList();
@@ -63,7 +63,7 @@ export class ChatRoom extends DurableObject {
         case "/silent":
           if (session.level === "admin") {
             this.silentMode = (args === "on");
-            this.broadcast({ system: `*** Mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
+            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
           }
           break;
         case "/op":
@@ -93,7 +93,6 @@ export class ChatRoom extends DurableObject {
       return;
     }
 
-    // Check Silent Mode
     if (this.silentMode && session.level === "user") {
       ws.send(JSON.stringify({ system: "Channel is +m (Silent). Only @ and + can speak." }));
       return;
@@ -125,7 +124,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v7");
+    const id = env.CHAT_ROOM.idFromName("mirc-v2026");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
