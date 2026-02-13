@@ -29,9 +29,8 @@
 	},
 	"private": true,
 	"scripts": {
-		"cf-typegen": "wrangler types ./src/server/worker-configuration.d.ts",
-		"check": "tsc --project src/client && tsc --project src/server && wrangler deploy --dry-run",
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev"
+  "deploy": "esbuild src/client/index.tsx --bundle --minify --outfile=public/dist/index.js --jsx=automatic --platform=browser && wrangler deploy"
+}
+
 	}
 }
