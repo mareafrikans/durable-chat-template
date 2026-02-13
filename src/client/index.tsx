@@ -22,23 +22,24 @@ const ChatApp = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#000', color: '#fff', fontFamily: 'monospace' }}>
-      <div style={{ background: '#000080', padding: '5px', border: '1px solid #fff' }}>#mIRC_Channel</div>
+      <div style={{ background: '#000080', padding: '5px', border: '1px solid #fff', fontWeight: 'bold' }}>#mIRC_Web_Network</div>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
           {messages.map((m, i) => (
-            <div key={i} style={{ color: m.pvt ? '#f0f' : '#fff' }}>
-              {m.system ? <span style={{ color: '#0f0' }}>{m.system}</span> : <><b style={{ color: '#ff0' }}>{m.user}</b> {m.text}</>}
+            <div key={i} style={{ marginBottom: '2px' }}>
+              {m.system ? <span style={{ color: '#0f0' }}>*** {m.system}</span> : <><b style={{ color: m.pvt ? '#f0f' : '#ff0' }}>&lt;{m.user}&gt;</b> {m.text}</>}
             </div>
           ))}
         </div>
         <div style={{ width: '150px', background: '#c0c0c0', color: '#000', padding: '5px', borderLeft: '2px solid #fff' }}>
-          <b>Users ({users.length})</b>
+          <b style={{ borderBottom: '1px solid #000', display: 'block' }}>Users ({users.length})</b>
           {users.map((u, i) => <div key={i}>{u}</div>)}
         </div>
       </div>
-      <div style={{ background: '#c0c0c0', padding: '5px' }}>
+      <div style={{ background: '#c0c0c0', padding: '5px', display: 'flex' }}>
+        <span style={{ color: '#000', padding: '0 5px', fontWeight: 'bold' }}>Status</span>
         <input 
-          style={{ width: '100%' }} 
+          style={{ flex: 1, border: '2px inset #808080' }} 
           value={input} 
           onChange={e => setInput(e.target.value)} 
           onKeyDown={e => e.key === 'Enter' && (socketRef.current?.send(JSON.stringify({ text: input })), setInput(""))} 
