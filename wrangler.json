@@ -5,6 +5,6 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": { "ADMIN_PASSKEY": "7088AB" },
   "durable_objects": { "bindings": [{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }] },
-  "migrations": [{ "tag": "v23", "tag_as_sqlite": ["ChatRoom"] }],
+  "migrations": [{ "tag": "v24", "tag_as_sqlite": ["ChatRoom"] }],
   "assets": { "directory": "./public" }
 }
