@@ -8,7 +8,7 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private topic: string = "Welcome to the mIRC Network";
+  private topic: string = "mIRC Durable Network v2026";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
@@ -21,7 +21,9 @@ export class ChatRoom extends DurableObject {
     this.ctx.acceptWebSocket(ws);
     const nick = "Guest" + Math.floor(Math.random() * 1000);
     this.sessions.set(ws, { name: nick, level: "user", ws });
+    
     this.broadcast({ system: `* Joins: ${nick} (user@durable-network)` });
+    ws.send(JSON.stringify({ topic: this.topic }));
     this.broadcastUserList();
   }
 
@@ -32,31 +34,35 @@ export class ChatRoom extends DurableObject {
     if (!text) return;
 
     if (text.startsWith("/")) {
-      const [cmd, ...argsArr] = text.split(" ");
-      const args = argsArr.join(" ");
+      const parts = text.split(" ");
+      const cmd = parts[0].toLowerCase();
+      const args = parts.slice(1).join(" ");
 
-      switch (cmd.toLowerCase()) {
+      switch (cmd) {
         case "/help":
-          ws.send(JSON.stringify({ system: "Commands: /nick <name>, /msg <nick> <text>, /silent <on/off>, /voice <nick>, /op <pass>, /quit <msg>, /topic <text>" }));
+          ws.send(JSON.stringify({ system: "mIRC Commands: /nick <name>, /msg <nick> <msg>, /silent <on/off>, /voice <nick>, /op <pass>, /quit <msg>, /topic <text>" }));
           break;
         case "/nick":
           const old = session.name;
-          session.name = args.replace(/[^\w]/g, "").substring(0, 15);
+          session.name = args.replace(/[^\w]/g, "").substring(0, 15) || session.name;
           this.broadcast({ system: `* ${old} is now known as ${session.name}` });
           this.broadcastUserList();
           break;
         case "/msg":
           const [targetNick, ...msgParts] = args.split(" ");
-          const target = Array.from(this.sessions.values()).find(s => s.name === targetNick);
+          const target = Array.from(this.sessions.values()).find(s => s.name === targetNick || `@${s.name}` === targetNick || `+${s.name}` === targetNick);
           if (target) {
-            target.ws.send(JSON.stringify({ user: `-> *${session.name}*`, text: msgParts.join(" "), pvt: true }));
-            ws.send(JSON.stringify({ user: `-> *${targetNick}*`, text: msgParts.join(" "), pvt: true }));
+            const m = msgParts.join(" ");
+            target.ws.send(JSON.stringify({ user: `-> *${session.name}*`, text: m, pvt: true }));
+            ws.send(JSON.stringify({ user: `-> *${targetNick}*`, text: m, pvt: true }));
+          } else {
+            ws.send(JSON.stringify({ system: `Nickname ${targetNick} not found.` }));
           }
           break;
         case "/silent":
           if (session.level === "admin") {
             this.silentMode = args === "on";
-            this.broadcast({ system: `*** Mode is now ${this.silentMode ? "+m" : "-m"}` });
+            this.broadcast({ system: `*** Mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
           }
           break;
         case "/op":
@@ -77,7 +83,10 @@ export class ChatRoom extends DurableObject {
           ws.close();
           break;
         case "/topic":
-          if (session.level === "admin") { this.topic = args; this.broadcast({ topic: this.topic }); }
+          if (session.level === "admin") {
+            this.topic = args;
+            this.broadcast({ topic: this.topic, system: `*** ${session.name} changes topic to: ${args}` });
+          }
           break;
       }
       return;
@@ -94,7 +103,11 @@ export class ChatRoom extends DurableObject {
 
   async webSocketClose(ws: WebSocket) {
     const s = this.sessions.get(ws);
-    if (s) { this.broadcast({ system: `* Parts: ${s.name}` }); this.sessions.delete(ws); this.broadcastUserList(); }
+    if (s) {
+      this.broadcast({ system: `* Parts: ${s.name}` });
+      this.sessions.delete(ws);
+      this.broadcastUserList();
+    }
   }
 
   private broadcast(data: any) {
@@ -110,7 +123,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v1");
+    const id = env.CHAT_ROOM.idFromName("mirc-global");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
