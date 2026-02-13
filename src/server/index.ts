@@ -93,7 +93,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v15");
+    const id = env.CHAT_ROOM.idFromName("mirc-v16");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
