@@ -33,16 +33,16 @@ const ChatApp = () => {
 
   return (
     <div className="mirc-window">
-      <div className="mirc-title">#DurableChannel: {topic}</div>
+      <div className="mirc-title">#Channel: {topic}</div>
       <div className="mirc-container">
         <div className="chat-area" ref={scrollRef}>
           {messages.map((m, i) => (
-            <div key={i} className={`line ${m.pvt ? 'pvt' : ''}`}>
+            <div key={i} className="line">
               {m.system ? (
                 <span className="sys-msg">{m.system}</span>
               ) : (
                 <>
-                  <span className="nick">{m.user}</span> {m.text}
+                  <span className="nick" style={{color: m.pvt ? '#ff00ff' : '#ffff00'}}>{m.user}</span> {m.text}
                 </>
               )}
             </div>
@@ -67,13 +67,14 @@ const ChatApp = () => {
         .mirc-title { background: #000080; padding: 4px; border: 2px outset #fff; font-weight: bold; }
         .mirc-container { display: flex; flex: 1; overflow: hidden; border: 2px inset #fff; }
         .chat-area { flex: 1; overflow-y: auto; padding: 10px; font-size: 14px; background: #000; }
-        .sidebar { width: 150px; background: #c0c0c0; color: #000; border-left: 2px outset #fff; padding: 5px; }
+        .sidebar { width: 140px; background: #c0c0c0; color: #000; border-left: 2px outset #fff; padding: 5px; overflow-y: auto; }
         .input-bar { background: #c0c0c0; padding: 3px; border-top: 2px outset #fff; }
         .input-bar input { width: 100%; border: 2px inset #808080; padding: 5px; outline: none; }
         .line { margin-bottom: 2px; line-height: 1.1; word-break: break-all; }
-        .pvt { color: #ff00ff; }
         .sys-msg { color: #00ff00; }
         .nick { color: #ffff00; font-weight: bold; margin-right: 8px; }
+        .sb-user { font-size: 13px; margin-bottom: 2px; }
+        .sb-count { font-weight: bold; border-bottom: 1px solid #000; margin-bottom: 5px; }
         @media (max-width: 600px) {
           .sidebar { width: 90px; font-size: 12px; }
           .chat-area { font-size: 12px; }
