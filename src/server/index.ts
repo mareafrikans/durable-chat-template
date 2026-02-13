@@ -8,103 +8,137 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private env: any;
   private topic: string = "Welcome to the Durable IRC Network!";
   private rules: string = "1. Be respectful. 2. No spam. 3. Have fun!";
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.env = env;
     // Load persisted topic/rules from storage on startup
-    ctx.blockConcurrencyWhile(async () => {
+    this.ctx.blockConcurrencyWhile(async () => {
       this.topic = (await this.ctx.storage.get<string>("topic")) || this.topic;
       this.rules = (await this.ctx.storage.get<string>("rules")) || this.rules;
     });
   }
 
   async fetch(request: Request) {
-    const [client, server] = Object.values(new WebSocketPair());
+    const webSocketPair = new WebSocketPair();
+    const [client, server] = Object.values(webSocketPair);
     await this.handleSession(server);
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async handleSession(ws: WebSocket) {
-    ws.accept();
-    const session: SessionData = { name: "Guest" + Math.floor(Math.random() * 1000), level: "user", muted: false };
+    this.ctx.acceptWebSocket(ws);
+    const session: SessionData = { 
+      name: "Guest" + Math.floor(Math.random() * 1000), 
+      level: "user", 
+      muted: false 
+    };
     this.sessions.set(ws, session);
 
-    // AUTO-SEND ON JOIN: Send Topic and Rules immediately
+    // Initial sync
     ws.send(JSON.stringify({ topic: this.topic }));
-    ws.send(JSON.stringify({ system: "CHANNEL RULES: " + this.rules }));
+    ws.send(JSON.stringify({ system: "WELCOME: Type /help for commands. Current Rules: " + this.rules }));
     
     this.broadcastUserList();
+  }
 
-    ws.addEventListener("message", async (msg) => {
-      const data = JSON.parse(msg.data as string);
-      if (data.text?.startsWith("/")) {
+  async webSocketMessage(ws: WebSocket, message: string) {
+    try {
+      const data = JSON.parse(message);
+      const session = this.sessions.get(ws);
+      if (!session || !data.text) return;
+
+      if (data.text.startsWith("/")) {
         await this.handleCommand(ws, data.text);
       } else {
-        this.broadcastChat(ws, data.text);
+        if (session.muted) {
+          ws.send(JSON.stringify({ system: "You are currently muted." }));
+          return;
+        }
+        const prefix = session.level === "admin" ? "@" : session.level === "op" ? "+" : "";
+        this.broadcast({ user: prefix + session.name, text: data.text });
       }
-    });
-
-    ws.addEventListener("close", () => {
-      this.sessions.delete(ws);
-      this.broadcastUserList();
-    });
+    } catch (e) {
+      console.error("WS Message Error:", e);
+    }
   }
 
   async handleCommand(ws: WebSocket, rawText: string) {
     const parts = rawText.split(" ");
     const command = parts[0].toLowerCase();
-    const args = parts.slice(1).join(" ");
+    const args = parts.slice(1).join(" ").trim();
     const session = this.sessions.get(ws)!;
 
     switch (command) {
+      case "/help":
+        ws.send(JSON.stringify({ system: "Available: /nick <name>, /topic <text>, /me <action>, /rules, /identify <pass>" }));
+        break;
+
+      case "/nick":
+        if (!args || args.length > 15) {
+          ws.send(JSON.stringify({ system: "Invalid nickname (max 15 chars)." }));
+        } else {
+          const oldNick = session.name;
+          session.name = args.replace(/[^\w]/g, ""); // Remove symbols
+          this.broadcast({ system: `${oldNick} is now known as ${session.name}` });
+          this.broadcastUserList();
+        }
+        break;
+
       case "/topic":
-        // Only Admins (@) or Mods (+) can set topic
         if (session.level === "admin" || session.level === "op") {
           this.topic = args;
           await this.ctx.storage.put("topic", this.topic);
           this.broadcast({ topic: this.topic, system: `*** ${session.name} changed topic to: ${args}` });
+        } else {
+          ws.send(JSON.stringify({ system: "Permission denied." }));
         }
         break;
 
-      case "/rules":
-        if (session.level === "admin") {
-          this.rules = args;
-          await this.ctx.storage.put("rules", this.rules);
-          ws.send(JSON.stringify({ system: "Channel rules updated." }));
+      case "/identify":
+        if (args === this.env.ADMIN_PASSKEY) {
+          session.level = "admin";
+          ws.send(JSON.stringify({ system: "You are now an ADMIN (@)." }));
+          this.broadcastUserList();
         } else {
-          ws.send(JSON.stringify({ system: "Rules: " + this.rules }));
+          ws.send(JSON.stringify({ system: "Incorrect passkey." }));
         }
         break;
-      
-      // ... include previous /identify and /op cases here ...
+
+      case "/me":
+        this.broadcast({ system: `* ${session.name} ${args}` });
+        break;
+
+      default:
+        ws.send(JSON.stringify({ system: `Unknown command: ${command}. Type /help.` }));
     }
+  }
+
+  async webSocketClose(ws: WebSocket) {
+    this.sessions.delete(ws);
+    this.broadcastUserList();
   }
 
   private broadcast(data: any) {
     const payload = JSON.stringify(data);
-    for (const [ws] of this.sessions) ws.send(payload);
+    this.sessions.forEach((_, ws) => {
+      try { ws.send(payload); } catch (e) { this.sessions.delete(ws); }
+    });
   }
 
   private broadcastUserList() {
-    const names = Array.from(this.sessions.values()).map(s => (s.level === "admin" ? "@" : s.level === "op" ? "+" : "") + s.name);
+    const names = Array.from(this.sessions.values()).map(s => 
+      (s.level === "admin" ? "@" : s.level === "op" ? "+" : "") + s.name
+    );
     this.broadcast({ userList: names });
-  }
-
-  private broadcastChat(ws: WebSocket, text: string) {
-    const s = this.sessions.get(ws)!;
-    if (s.muted) return;
-    const prefix = s.level === "admin" ? "@" : s.level === "op" ? "+" : "";
-    this.broadcast({ name: prefix + s.name, text });
   }
 }
 
 export default {
   async fetch(request: Request, env: any) {
     const id = env.CHAT_ROOM.idFromName("global-mirc-v3");
-    return env.CHAT_ROOM.get(id).fetch(request);
+    const obj = env.CHAT_ROOM.get(id);
+    return obj.fetch(request);
   }
 };
