@@ -14,18 +14,18 @@ const ChatApp = () => {
         <span className="topic-label">Topic:</span> {topic}
       </div>
       <div className="mirc-main">
-         {/* Your Chat and Sidebar components go here */}
-         <div style={{padding: '20px'}}>mIRC Chat Ready.</div>
+         {/* Your chat content */}
+         <div style={{color: 'lime', padding: '10px'}}>System: Connected to mIRC Web.</div>
       </div>
     </div>
   );
 };
 
-// CRITICAL: This is the code that actually puts the app into your index.html
+// THIS IS THE CRITICAL MISSING PIECE
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
   root.render(<ChatApp />);
 } else {
-  console.error("Could not find the #root element in index.html");
+  console.error("Fatal Error: Could not find #root element in index.html");
 }
