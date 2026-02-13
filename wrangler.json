@@ -18,7 +18,7 @@
   },
   "migrations": [
     {
-      "tag": "v3",
+      "tag": "v5",
       "new_sqlite_classes": ["ChatRoom"]
     }
   ],
@@ -28,6 +28,6 @@
     "not_found_handling": "single-page-application"
   },
   "build": {
-    "command": "esbuild src/client/index.tsx --bundle --splitting --format=esm --platform=browser --target=es2020 --jsx=automatic --outdir=public/dist"
+    "command": "esbuild src/client/index.tsx --bundle --format=esm --platform=browser --target=es2020 --jsx=automatic --outfile=public/dist/index.js"
   }
 }
