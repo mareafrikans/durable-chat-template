@@ -8,7 +8,7 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private topic: string = "Welcome to the mIRC Durable Network 2026";
+  private topic: string = "mIRC Durable Network 2026";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
@@ -22,7 +22,6 @@ export class ChatRoom extends DurableObject {
     const nick = "Guest" + Math.floor(Math.random() * 1000);
     this.sessions.set(ws, { name: nick, level: "user", ws });
     
-    // Broadcast Join
     this.broadcast({ system: `* Joins: ${nick} (user@durable-network)` });
     ws.send(JSON.stringify({ topic: this.topic }));
     this.broadcastUserList();
