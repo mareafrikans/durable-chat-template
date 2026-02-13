@@ -67,7 +67,7 @@ const ChatApp = () => {
         .mirc-title { background: #000080; padding: 4px; border: 2px outset #fff; font-weight: bold; }
         .mirc-container { display: flex; flex: 1; overflow: hidden; border: 2px inset #fff; }
         .chat-area { flex: 1; overflow-y: auto; padding: 10px; font-size: 14px; background: #000; }
-        .sidebar { width: 140px; background: #c0c0c0; color: #000; border-left: 2px outset #fff; padding: 5px; overflow-y: auto; }
+        .sidebar { width: 150px; background: #c0c0c0; color: #000; border-left: 2px outset #fff; padding: 5px; overflow-y: auto; }
         .input-bar { background: #c0c0c0; padding: 3px; border-top: 2px outset #fff; }
         .input-bar input { width: 100%; border: 2px inset #808080; padding: 5px; outline: none; }
         .line { margin-bottom: 2px; line-height: 1.1; word-break: break-all; }
