@@ -6,7 +6,7 @@ const ChatApp = () => {
   const [users, setUsers] = useState<string[]>([]);
   const [topic, setTopic] = useState("Loading topic...");
 
-  // ... (Keep your existing socket logic here) ...
+  // ... [Your existing useEffect and socket logic] ...
 
   return (
     <div className="mirc-container">
@@ -14,15 +14,18 @@ const ChatApp = () => {
         <span className="topic-label">Topic:</span> {topic}
       </div>
       <div className="mirc-main">
-        {/* Your chat components */}
+         {/* Your Chat and Sidebar components go here */}
+         <div style={{padding: '20px'}}>mIRC Chat Ready.</div>
       </div>
     </div>
   );
 };
 
-// --- ADD THIS BLOCK TO THE BOTTOM ---
+// CRITICAL: This is the code that actually puts the app into your index.html
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
   root.render(<ChatApp />);
+} else {
+  console.error("Could not find the #root element in index.html");
 }
