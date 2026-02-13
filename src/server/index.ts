@@ -8,7 +8,7 @@ interface SessionData {
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, SessionData>();
-  private topic: string = "mIRC Durable Network v2026";
+  private topic: string = "Welcome to the mIRC Durable Network";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
@@ -22,6 +22,7 @@ export class ChatRoom extends DurableObject {
     const nick = "Guest" + Math.floor(Math.random() * 1000);
     this.sessions.set(ws, { name: nick, level: "user", ws });
     
+    // Announce Join
     this.broadcast({ system: `* Joins: ${nick} (user@durable-network)` });
     ws.send(JSON.stringify({ topic: this.topic }));
     this.broadcastUserList();
@@ -40,7 +41,7 @@ export class ChatRoom extends DurableObject {
 
       switch (cmd) {
         case "/help":
-          ws.send(JSON.stringify({ system: "mIRC Commands: /nick <name>, /msg <nick> <msg>, /silent <on/off>, /voice <nick>, /op <pass>, /quit <msg>, /topic <text>" }));
+          ws.send(JSON.stringify({ system: "Commands: /nick <name>, /msg <nick> <text>, /silent <on/off>, /voice <nick>, /op <pass>, /quit <msg>, /topic <text>" }));
           break;
         case "/nick":
           const old = session.name;
@@ -53,15 +54,15 @@ export class ChatRoom extends DurableObject {
           const target = Array.from(this.sessions.values()).find(s => s.name === targetNick || `@${s.name}` === targetNick || `+${s.name}` === targetNick);
           if (target) {
             const m = msgParts.join(" ");
-            target.ws.send(JSON.stringify({ user: `-> *${session.name}*`, text: m, pvt: true }));
+            target.ws.send(JSON.stringify({ user: `*${session.name}*`, text: m, pvt: true }));
             ws.send(JSON.stringify({ user: `-> *${targetNick}*`, text: m, pvt: true }));
           } else {
-            ws.send(JSON.stringify({ system: `Nickname ${targetNick} not found.` }));
+            ws.send(JSON.stringify({ system: `Nick ${targetNick} not found.` }));
           }
           break;
         case "/silent":
           if (session.level === "admin") {
-            this.silentMode = args === "on";
+            this.silentMode = (args === "on");
             this.broadcast({ system: `*** Mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
           }
           break;
@@ -92,6 +93,7 @@ export class ChatRoom extends DurableObject {
       return;
     }
 
+    // Check Silent Mode
     if (this.silentMode && session.level === "user") {
       ws.send(JSON.stringify({ system: "Channel is +m (Silent). Only @ and + can speak." }));
       return;
@@ -123,7 +125,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-global");
+    const id = env.CHAT_ROOM.idFromName("mirc-v7");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
