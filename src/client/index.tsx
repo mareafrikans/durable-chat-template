@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 const ChatApp = () => {
   const [messages, setMessages] = useState<any[]>([]);
   const [users, setUsers] = useState<string[]>([]);
-  const [topic, setTopic] = useState("mIRC Client");
+  const [topic, setTopic] = useState("mIRC Client 2026");
   const [input, setInput] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -33,7 +33,7 @@ const ChatApp = () => {
 
   return (
     <div className="mirc-window">
-      <div className="mirc-title">#Channel: {topic}</div>
+      <div className="mirc-title">#DurableNet: {topic}</div>
       <div className="mirc-container">
         <div className="chat-area" ref={scrollRef}>
           {messages.map((m, i) => (
