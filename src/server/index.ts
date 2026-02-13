@@ -1,33 +1,40 @@
 import { DurableObject } from "cloudflare:workers";
 
 export class ChatRoom extends DurableObject {
-  private sessions = new Map<WebSocket, { name: string; level: string }>();
   private silentMode: boolean = false;
+
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+  }
 
   async fetch(request: Request) {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
+
+    // Register connection with the Hibernation API
+    // We store the nick and level directly in the WebSocket "attachment"
+    const initialData = { 
+      nick: "Guest" + Math.floor(Math.random() * 1000), 
+      level: "user" 
+    };
     
-    // Register the connection for hibernation
-    this.ctx.acceptWebSocket(server);
-    
-    const nick = "Guest" + Math.floor(Math.random() * 1000);
-    this.sessions.set(server, { name: nick, level: "user" });
-    
-    this.broadcast({ system: `* Joins: ${nick}` });
+    this.ctx.acceptWebSocket(server, [initialData.nick, initialData.level]);
+
+    this.broadcast({ system: `* Joins: ${initialData.nick}` });
     this.broadcastUserList();
-    
+
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, message: string) {
     const data = JSON.parse(message);
-    const session = this.sessions.get(ws);
-    if (!session || !data.text) return;
+    // Retrieve the session data from the attachment
+    const [nick, level] = this.ctx.getTags(ws);
+    const text = data.text?.trim();
 
-    const text = data.text.trim();
+    if (!text) return;
 
-    // Command Logic
+    // COMMAND HANDLING
     if (text.startsWith("/")) {
       const parts = text.split(" ");
       const cmd = parts[0].toLowerCase();
@@ -35,80 +42,93 @@ export class ChatRoom extends DurableObject {
 
       switch (cmd) {
         case "/nick":
-          const old = session.name;
-          session.name = args.replace(/[^\w]/g, "").substring(0, 12) || session.name;
-          this.broadcast({ system: `* ${old} is now ${session.name}` });
-          this.broadcastUserList();
-          break;
-        case "/msg":
-          const [tNick, ...mParts] = args.split(" ");
-          // Find target using the sessions map
-          const targetEntry = Array.from(this.sessions.entries()).find(([_, s]) => s.name === tNick);
-          if (targetEntry) {
-            const p = JSON.stringify({ user: `-> *${session.name}*`, text: mParts.join(" "), pvt: true });
-            targetEntry[0].send(p); // Send to target WebSocket
-            ws.send(p); // Send back to sender
+          const newNick = args.replace(/[^\w]/g, "").substring(0, 12);
+          if (newNick) {
+            this.broadcast({ system: `* ${nick} is now known as ${newNick}` });
+            this.ctx.setTags(ws, [newNick, level]);
+            this.broadcastUserList();
           }
           break;
+
+        case "/msg":
+          const [targetNick, ...msgParts] = args.split(" ");
+          const privateMsg = msgParts.join(" ");
+          const targetWs = this.ctx.getWebSockets(targetNick)[0];
+          if (targetWs) {
+            const payload = JSON.stringify({ user: `*${nick}*`, text: privateMsg, pvt: true });
+            targetWs.send(payload);
+            ws.send(JSON.stringify({ user: `-> *${targetNick}*`, text: privateMsg, pvt: true }));
+          } else {
+            ws.send(JSON.stringify({ system: `User ${targetNick} not found.` }));
+          }
+          break;
+
         case "/op":
           if (args === "7088AB") {
-            session.level = "admin";
+            this.ctx.setTags(ws, [nick, "admin"]);
             ws.send(JSON.stringify({ system: "You are now @Operator" }));
             this.broadcastUserList();
           }
           break;
+
         case "/silent":
-          if (session.level === "admin") {
+          if (level === "admin") {
             this.silentMode = (args === "on");
-            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
+            this.broadcast({ system: `*** Mode is ${this.silentMode ? "+m (Silent)" : "-m (Open)"}` });
           }
           break;
-        case "/help":
-          ws.send(JSON.stringify({ system: "Commands: /nick, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
-          break;
+
         case "/quit":
-          this.broadcast({ system: `* Quits: ${session.name}` });
+          this.broadcast({ system: `* Quits: ${nick} (${args || "Leaving"})` });
           ws.close();
           break;
+
+        case "/help":
+          ws.send(JSON.stringify({ system: "mIRC: /nick <name>, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit <msg>" }));
+          break;
+
+        default:
+          ws.send(JSON.stringify({ system: `Unknown command: ${cmd}` }));
       }
       return;
     }
 
-    // Standard Broadcast
-    if (this.silentMode && session.level === "user") {
-        ws.send(JSON.stringify({ system: "Channel is +m. Only @ and + can talk." }));
-        return;
+    // CHAT BROADCAST
+    if (this.silentMode && level !== "admin") {
+      ws.send(JSON.stringify({ system: "Channel is +m. Only @ can talk." }));
+      return;
     }
-    const pfx = session.level === "admin" ? "@" : "";
-    this.broadcast({ user: pfx + session.name, text });
+
+    const prefix = level === "admin" ? "@" : "";
+    this.broadcast({ user: prefix + nick, text });
   }
 
   async webSocketClose(ws: WebSocket) {
-    const s = this.sessions.get(ws);
-    if (s) {
-      this.broadcast({ system: `* Parts: ${s.name}` });
-      this.sessions.delete(ws);
-      this.broadcastUserList();
-    }
+    const [nick] = this.ctx.getTags(ws);
+    this.broadcast({ system: `* Parts: ${nick}` });
+    this.broadcastUserList();
   }
 
   private broadcast(data: any) {
     const payload = JSON.stringify(data);
-    // ctx.getWebSockets() is the ONLY way to reach all users in the DO
+    // CRITICAL: Send to ALL connected WebSockets
     this.ctx.getWebSockets().forEach(ws => {
-      try { ws.send(payload); } catch (e) {}
+      try { ws.send(payload); } catch (e) { ws.close(); }
     });
   }
 
   private broadcastUserList() {
-    const users = Array.from(this.sessions.values()).map(s => (s.level === "admin" ? "@" : "") + s.name);
+    const users = this.ctx.getWebSockets().map(ws => {
+      const [nick, level] = this.ctx.getTags(ws);
+      return (level === "admin" ? "@" : "") + nick;
+    });
     this.broadcast({ userList: users });
   }
 }
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-final-sync");
+    const id = env.CHAT_ROOM.idFromName("mirc-v23-fixed");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
