@@ -1,15 +1,26 @@
 {
   "name": "durable-chat-template",
-  "version": "1.0.0",
-  "devDependencies": {
-    "wrangler": "^3.0.0",
-    "esbuild": "^0.20.0"
+  "main": "src/server/index.ts",
+  "compatibility_date": "2024-04-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ADMIN_PASSKEY": "7088AB"
   },
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_ROOM",
+        "class_name": "ChatRoom"
+      }
+    ]
   },
-  "scripts": {
-    "deploy": "esbuild src/client/index.tsx --bundle --minify --outfile=public/dist/index.js --jsx=automatic --platform=browser && wrangler deploy"
+  "migrations": [
+    {
+      "tag": "v15",
+      "new_sqlite_classes": ["ChatRoom"]
+    }
+  ],
+  "assets": {
+    "directory": "./public"
   }
 }
