@@ -1,155 +1,94 @@
-import { DurableObject } from "cloudflare:workers";
+import React, { useState, useEffect, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
 
-interface SessionData {
-  name: string;
-  level: "user" | "voice" | "admin";
-  ws: WebSocket;
-}
+const ChatApp = () => {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [users, setUsers] = useState<string[]>([]);
+  const [topic, setTopic] = useState("mIRC Client v5.0");
+  const [input, setInput] = useState("");
+  const socketRef = useRef<WebSocket | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-export class ChatRoom extends DurableObject {
-  private sessions = new Map<WebSocket, SessionData>();
-  private topic: string = "Welcome to the mIRC Network";
-  private silentMode: boolean = false;
+  useEffect(() => {
+    const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/websocket`);
+    socketRef.current = socket;
+    socket.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.topic) setTopic(data.topic);
+      if (data.userList) setUsers(data.userList.sort());
+      if (data.user || data.system) setMessages(p => [...p, data]);
+    };
+    return () => socket.close();
+  }, []);
 
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-  }
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
 
-  async fetch(request: Request) {
-    const [client, server] = Object.values(new WebSocketPair());
-    await this.handleSession(server);
-    return new Response(null, { status: 101, webSocket: client });
-  }
+  const send = () => {
+    if (!input) return;
+    socketRef.current?.send(JSON.stringify({ text: input }));
+    setInput("");
+  };
 
-  async handleSession(ws: WebSocket) {
-    this.ctx.acceptWebSocket(ws);
-    const nick = "Guest" + Math.floor(Math.random() * 1000);
-    const session: SessionData = { name: nick, level: "user", ws };
-    this.sessions.set(ws, session);
+  return (
+    <div className="mirc-window">
+      <div className="mirc-title">#DurableChannel: {topic}</div>
+      
+      <div className="mirc-container">
+        <div className="chat-area" ref={scrollRef}>
+          {messages.map((m, i) => (
+            <div key={i} className={`line ${m.pvt ? 'pvt' : ''}`}>
+              {m.system ? (
+                <span className="sys-msg">{m.system}</span>
+              ) : (
+                <>
+                  <span className="nick">{m.user}</span> {m.text}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
 
-    // Join Message
-    this.broadcast({ system: `* Joins: ${nick} (user@durable-network)` });
-    ws.send(JSON.stringify({ topic: this.topic }));
-    this.broadcastUserList();
-  }
+        <div className="sidebar">
+          <div className="sb-count">{users.length} Users</div>
+          {users.map((u, i) => <div key={i} className="sb-user">{u}</div>)}
+        </div>
+      </div>
 
-  async webSocketMessage(ws: WebSocket, message: string) {
-    const data = JSON.parse(message);
-    const session = this.sessions.get(ws)!;
-    const text = data.text?.trim();
-    if (!text) return;
+      <div className="input-bar">
+        <input 
+          autoFocus 
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          placeholder="Type /help for mIRC commands..."
+        />
+      </div>
 
-    // COMMAND PARSING
-    if (text.startsWith("/")) {
-      const parts = text.split(" ");
-      const cmd = parts[0].toLowerCase();
-      const args = parts.slice(1).join(" ");
+      <style>{`
+        .mirc-window { display: flex; flex-direction: column; height: 100vh; background: #000; color: #fff; font-family: "Fixedsys", monospace; }
+        .mirc-title { background: #000080; padding: 4px; border: 2px outset #fff; font-weight: bold; font-size: 14px; }
+        .mirc-container { display: flex; flex: 1; overflow: hidden; border: 2px inset #fff; }
+        .chat-area { flex: 1; overflow-y: auto; padding: 10px; font-size: 14px; background: #000; }
+        .sidebar { width: 140px; background: #c0c0c0; color: #000; border-left: 2px outset #fff; padding: 5px; overflow-y: auto; }
+        .input-bar { background: #c0c0c0; padding: 3px; border-top: 2px outset #fff; }
+        .input-bar input { width: 100%; border: 2px inset #808080; padding: 5px; outline: none; }
+        
+        .line { margin-bottom: 2px; line-height: 1.1; word-break: break-all; }
+        .pvt { color: #ff00ff; font-weight: bold; } /* Magenta for Private Messages */
+        .sys-msg { color: #00ff00; }
+        .nick { color: #ffff00; font-weight: bold; margin-right: 8px; }
+        .sb-user { font-size: 13px; margin-bottom: 2px; }
+        .sb-count { font-weight: bold; border-bottom: 1px solid #000; margin-bottom: 5px; }
 
-      switch (cmd) {
-        case "/help":
-          ws.send(JSON.stringify({ system: "Commands: /nick, /msg <nick> <msg>, /me, /topic, /silent <on/off>, /voice <nick>, /op <pass>, /quit [msg]" }));
-          break;
-
-        case "/nick":
-          const old = session.name;
-          session.name = args.split(" ")[0].replace(/[^\w]/g, "");
-          this.broadcast({ system: `* ${old} is now known as ${session.name}` });
-          this.broadcastUserList();
-          break;
-
-        case "/msg": // Private Message
-          const [targetNick, ...msgParts] = args.split(" ");
-          const privateMsg = msgParts.join(" ");
-          const target = Array.from(this.sessions.values()).find(s => s.name === targetNick);
-          if (target) {
-            const payload = JSON.stringify({ user: `-> *${targetNick}*`, text: privateMsg, pvt: true });
-            ws.send(payload);
-            target.ws.send(JSON.stringify({ user: `*${session.name}*`, text: privateMsg, pvt: true }));
-          } else {
-            ws.send(JSON.stringify({ system: `Nickname ${targetNick} not found.` }));
-          }
-          break;
-
-        case "/silent":
-          if (session.level === "admin") {
-            this.silentMode = args === "on";
-            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Muted/Silent)" : "-m (Unmuted)"}` });
-          }
-          break;
-
-        case "/voice": // Grant + level
-          if (session.level === "admin") {
-            const vTarget = Array.from(this.sessions.values()).find(s => s.name === args);
-            if (vTarget) {
-              vTarget.level = "voice";
-              this.broadcast({ system: `*** ${session.name} sets mode +v ${args}` });
-              this.broadcastUserList();
-            }
-          }
-          break;
-
-        case "/op": // /op <passkey>
-          if (args === "7088AB") { // Simplified for demo
-            session.level = "admin";
-            this.broadcast({ system: `*** ${session.name} is now a Channel Operator (@)` });
-            this.broadcastUserList();
-          }
-          break;
-
-        case "/quit":
-          this.broadcast({ system: `* Quits: ${session.name} (${args || "Leaving"})` });
-          ws.close();
-          break;
-
-        case "/topic":
-          if (session.level === "admin") {
-            this.topic = args;
-            this.broadcast({ topic: this.topic, system: `*** ${session.name} changes topic to: ${args}` });
-          }
-          break;
-
-        default:
-          ws.send(JSON.stringify({ system: "Unknown command. Type /help" }));
-      }
-      return;
-    }
-
-    // MAIN CHANNEL CHAT
-    if (this.silentMode && session.level === "user") {
-      ws.send(JSON.stringify({ system: "Channel is +m (Silent). Only @ and + can speak." }));
-      return;
-    }
-
-    const prefix = session.level === "admin" ? "@" : session.level === "voice" ? "+" : "";
-    this.broadcast({ user: prefix + session.name, text: text });
-  }
-
-  async webSocketClose(ws: WebSocket) {
-    const session = this.sessions.get(ws);
-    if (session) {
-      this.broadcast({ system: `* Parts: ${session.name}` });
-      this.sessions.delete(ws);
-      this.broadcastUserList();
-    }
-  }
-
-  private broadcast(data: any) {
-    const payload = JSON.stringify(data);
-    this.sessions.forEach((_, ws) => ws.send(payload));
-  }
-
-  private broadcastUserList() {
-    const users = Array.from(this.sessions.values()).map(s => {
-      const p = s.level === "admin" ? "@" : s.level === "voice" ? "+" : "";
-      return p + s.name;
-    });
-    this.broadcast({ userList: users });
-  }
-}
-
-export default {
-  async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v5");
-    return env.CHAT_ROOM.get(id).fetch(request);
-  }
+        @media (max-width: 600px) {
+          .sidebar { width: 100px; font-size: 12px; }
+          .chat-area { font-size: 12px; }
+        }
+      `}</style>
+    </div>
+  );
 };
+
+createRoot(document.getElementById('root')!).render(<ChatApp />);
