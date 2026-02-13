@@ -42,10 +42,12 @@ export class ChatRoom extends DurableObject {
           break;
         case "/msg":
           const [tNick, ...mParts] = args.split(" ");
-          const targetWs = this.ctx.getWebSockets().find(w => this.sessions.get(w)?.name === tNick);
-          if (targetWs) {
+          // Find target using the sessions map
+          const targetEntry = Array.from(this.sessions.entries()).find(([_, s]) => s.name === tNick);
+          if (targetEntry) {
             const p = JSON.stringify({ user: `-> *${session.name}*`, text: mParts.join(" "), pvt: true });
-            targetWs.send(p); ws.send(p);
+            targetEntry[0].send(p); // Send to target WebSocket
+            ws.send(p); // Send back to sender
           }
           break;
         case "/op":
@@ -53,6 +55,12 @@ export class ChatRoom extends DurableObject {
             session.level = "admin";
             ws.send(JSON.stringify({ system: "You are now @Operator" }));
             this.broadcastUserList();
+          }
+          break;
+        case "/silent":
+          if (session.level === "admin") {
+            this.silentMode = (args === "on");
+            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` });
           }
           break;
         case "/help":
@@ -66,8 +74,11 @@ export class ChatRoom extends DurableObject {
       return;
     }
 
-    // Broadcast Chat
-    if (this.silentMode && session.level === "user") return;
+    // Standard Broadcast
+    if (this.silentMode && session.level === "user") {
+        ws.send(JSON.stringify({ system: "Channel is +m. Only @ and + can talk." }));
+        return;
+    }
     const pfx = session.level === "admin" ? "@" : "";
     this.broadcast({ user: pfx + session.name, text });
   }
@@ -83,23 +94,21 @@ export class ChatRoom extends DurableObject {
 
   private broadcast(data: any) {
     const payload = JSON.stringify(data);
+    // ctx.getWebSockets() is the ONLY way to reach all users in the DO
     this.ctx.getWebSockets().forEach(ws => {
       try { ws.send(payload); } catch (e) {}
     });
   }
 
   private broadcastUserList() {
-    const users = this.ctx.getWebSockets().map(ws => {
-        const s = this.sessions.get(ws);
-        return (s?.level === "admin" ? "@" : "") + (s?.name || "Unknown");
-    });
+    const users = Array.from(this.sessions.values()).map(s => (s.level === "admin" ? "@" : "") + s.name);
     this.broadcast({ userList: users });
   }
 }
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v21");
+    const id = env.CHAT_ROOM.idFromName("mirc-final-sync");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
