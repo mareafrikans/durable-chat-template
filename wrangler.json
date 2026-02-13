@@ -16,8 +16,8 @@
   },
   "migrations": [
     {
-      "tag": "v21",
-      "new_sqlite_classes": ["ChatRoom"]
+      "tag": "v22",
+      "tag_as_sqlite": ["ChatRoom"]
     }
   ],
   "assets": {
