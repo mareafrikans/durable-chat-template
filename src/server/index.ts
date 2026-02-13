@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 
 export class ChatRoom extends DurableObject {
   private sessions = new Map<WebSocket, { name: string; level: string; ws: WebSocket }>();
-  private topic: string = "mIRC Durable Network";
+  private topic: string = "mIRC Durable Network v2026";
   private silentMode: boolean = false;
 
   async fetch(request: Request) {
@@ -34,7 +34,7 @@ export class ChatRoom extends DurableObject {
       switch (cmd) {
         case "/nick":
           const old = session.name;
-          session.name = args.replace(/[^\w]/g, "").substring(0, 12);
+          session.name = args.replace(/[^\w]/g, "").substring(0, 12) || session.name;
           this.broadcast({ system: `* ${old} is now ${session.name}` });
           this.broadcastUserList();
           break;
@@ -50,20 +50,26 @@ export class ChatRoom extends DurableObject {
           if (args === "7088AB") { session.level = "admin"; this.broadcastUserList(); }
           break;
         case "/silent":
-          if (session.level === "admin") { this.silentMode = (args === "on"); this.broadcast({ system: `*** Silent: ${this.silentMode}` }); }
+          if (session.level === "admin") { 
+            this.silentMode = (args === "on"); 
+            this.broadcast({ system: `*** Channel mode is now ${this.silentMode ? "+m (Silent)" : "-m"}` }); 
+          }
           break;
         case "/help":
-          ws.send(JSON.stringify({ system: "/nick, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
+          ws.send(JSON.stringify({ system: "Commands: /nick <nick>, /msg <nick> <msg>, /op <pass>, /silent <on/off>, /quit" }));
           break;
         case "/quit":
-          this.broadcast({ system: `* Quits: ${session.name}` });
+          this.broadcast({ system: `* Quits: ${session.name} (${args || "Leaving"})` });
           ws.close();
           break;
       }
       return;
     }
 
-    if (this.silentMode && session.level === "user") return;
+    if (this.silentMode && session.level === "user") {
+        ws.send(JSON.stringify({ system: "Channel is +m. Only @ and + can talk." }));
+        return;
+    }
     const prefix = session.level === "admin" ? "@" : "";
     this.broadcast({ user: prefix + session.name, text });
   }
@@ -86,7 +92,7 @@ export class ChatRoom extends DurableObject {
 
 export default {
   async fetch(request: Request, env: any) {
-    const id = env.CHAT_ROOM.idFromName("mirc-v10");
+    const id = env.CHAT_ROOM.idFromName("mirc-final");
     return env.CHAT_ROOM.get(id).fetch(request);
   }
 };
